@@ -1,0 +1,2039 @@
+---
+title: |
+  Attainment Gaps Data Set Analysis  
+  Paper Analysis  
+# author: "Rick Brown"
+# date: "`r Sys.Date()`"
+output: 
+  html_document:
+    pandoc_args: ["-f", "commonmark_x"]
+editor_options:
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+mem.maxVSize(vsize = 8000)
+# knitr::opts_chunk$set(
+#   cache.path = paste0("/Volumes/Attainment Gaps Fellow/",
+#                       "Attainment Gaps Analysis/",
+#                       "Attainment_Gaps_Regression_paper_cache/html/")
+#   )
+# knitr::opts_chunk$set(
+#   fig.path = paste0("/Volumes/Attainment Gaps Fellow/",
+#                       "Attainment Gaps Analysis/",
+#                       "Attainment_Gaps_Regression_paper_files/figure-html/")
+#   )
+Sys.setenv(RSTUDIO_PANDOC = "~/Library/Application Support/r-pandoc/3.6.3")
+
+knitr::opts_chunk$set(dev = ifelse(knitr::is_html_output(), "svglite", "pdf"),
+                      dev.args = list(svg = list(standalone = TRUE)))
+
+
+# source(paste0("~/My Drive/SUU/Attainment Gaps Fellow/",
+#               "extract_models_pvalues_glmmTMB.R"))
+# source(paste0("~/My Drive/SUU/Attainment Gaps Fellow",
+#               "/extract_models_pvalues_glmmTMB_indiv.R"))
+# source(paste0("~/My Drive/SUU/Attainment Gaps Fellow/",
+#               "extract_models_pvalues.R"))
+source('/Users/rickbrown/My Drive/SUU/Attainment Gaps Fellow/extract_models_glmmTMB_ns.R')
+source('/Users/rickbrown/My Drive/SUU/Attainment Gaps Fellow/predict_mixed.R')
+library(tidyverse) |> suppressPackageStartupMessages()
+library(readxl) |> suppressPackageStartupMessages()
+library(ggsci) |> suppressPackageStartupMessages()
+library(knitr) |> suppressPackageStartupMessages()
+library(kableExtra) |> suppressPackageStartupMessages()
+# library(plotly) |> suppressPackageStartupMessages()
+# library(shiny) |> suppressPackageStartupMessages()
+library(glmmTMB) |> suppressPackageStartupMessages()
+# library(parallel) |> suppressPackageStartupMessages()
+# library(future.apply) |> suppressPackageStartupMessages()
+library(future) |> suppressPackageStartupMessages()
+library(performance) |> suppressPackageStartupMessages()
+library(caret) |> suppressPackageStartupMessages()
+library(splines) |> suppressPackageStartupMessages()
+```
+
+```{r read_data, include = FALSE}
+attain_data <- read_csv(paste0("/Volumes/Attainment Gaps Fellow/",
+                         "attainment_gaps_data_02052025.csv"))
+
+variable_codes <- read_excel(
+  paste0("/Volumes/Attainment Gaps Fellow/",
+         "attainment_gaps_data_codes_random_college.xlsx")
+  ) |>
+  mutate(old_code = factor(old_code),
+         new_value = factor(new_value))
+```
+
+```{r cleaning_renaming, cache=FALSE,include=FALSE}
+names(attain_data) <- tolower(names(attain_data))
+attain_term <- attain_data |> mutate(
+  covid = factor(
+    case_when(
+      term %in% c("201620", "201630", "201710", "201720", "201730", 
+                       "201810", "201820", "201830", "201910",
+                       "201920", "201930") ~ "Pre-COVID",
+      term %in% c("202010", "202020", "202030", "202110", "202120", 
+                       "202130") ~ "During COVID",
+      .default = "Post-COVID"
+      ),
+    levels = c("Pre-COVID", "During COVID", "Post-COVID")
+  ),
+  term = factor(
+    case_when(
+      term == "201620" ~ "Summer 2016",
+      term == "201630" ~ "Fall 2016",
+      term == "201710" ~ "Spring 2017",
+      term == "201720" ~ "Summer 2017",
+      term == "201730" ~ "Fall 2017",
+      term == "201810" ~ "Spring 2018",
+      term == "201820" ~ "Summer 2018",
+      term == "201830" ~ "Fall 2018",
+      term == "201910" ~ "Spring 2019",
+      term == "201920" ~ "Summer 2019",
+      term == "201930" ~ "Fall 2019",
+      term == "202010" ~ "Spring 2020",
+      term == "202020" ~ "Summer 2020",
+      term == "202030" ~ "Fall 2020",
+      term == "202110" ~ "Spring 2021",
+      term == "202120" ~ "Summer 2021",
+      term == "202130" ~ "Fall 2021",
+      term == "202210" ~ "Spring 2022",
+      term == "202220" ~ "Summer 2022",
+      term == "202230" ~ "Fall 2022",
+      term == "202310" ~ "Spring 2023"
+      ),
+    levels = c("Summer 2016", "Fall 2016", 
+               "Spring 2017", "Summer 2017", "Fall 2017",
+               "Spring 2018", "Summer 2018", "Fall 2018",
+               "Spring 2019", "Summer 2019", "Fall 2019",
+               "Spring 2020", "Summer 2020", "Fall 2020",
+               "Spring 2021", "Summer 2021", "Fall 2021",
+               "Spring 2022", "Summer 2022", "Fall 2022",
+               "Spring 2023")
+    ),
+  highest_degree = ifelse(is.na(highest_degree), "None", highest_degree),
+  degree_term = factor(
+    case_when(
+      degree_term == "201620" ~ "Summer 2016",
+      degree_term == "201630" ~ "Fall 2016",
+      degree_term == "201710" ~ "Spring 2017",
+      degree_term == "201720" ~ "Summer 2017",
+      degree_term == "201730" ~ "Fall 2017",
+      degree_term == "201810" ~ "Spring 2018",
+      degree_term == "201820" ~ "Summer 2018",
+      degree_term == "201830" ~ "Fall 2018",
+      degree_term == "201910" ~ "Spring 2019",
+      degree_term == "201920" ~ "Summer 2019",
+      degree_term == "201930" ~ "Fall 2019",
+      degree_term == "202010" ~ "Spring 2020",
+      degree_term == "202020" ~ "Summer 2020",
+      degree_term == "202030" ~ "Fall 2020",
+      degree_term == "202110" ~ "Spring 2021",
+      degree_term == "202120" ~ "Summer 2021",
+      degree_term == "202130" ~ "Fall 2021",
+      degree_term == "202210" ~ "Spring 2022",
+      degree_term == "202220" ~ "Summer 2022",
+      degree_term == "202230" ~ "Fall 2022",
+      degree_term == "202310" ~ "Spring 2023",
+      is.na(degree_term) ~ "None"
+      ), levels = c("Summer 2016", "Fall 2016", 
+               "Spring 2017", "Summer 2017", "Fall 2017",
+               "Spring 2018", "Summer 2018", "Fall 2018",
+               "Spring 2019", "Summer 2019", "Fall 2019",
+               "Spring 2020", "Summer 2020", "Fall 2020",
+               "Spring 2021", "Summer 2021", "Fall 2021",
+               "Spring 2022", "Summer 2022", "Fall 2022",
+               "Spring 2023", "None")
+  ),
+  # degree_term = ifelse(is.na(degree_term), "None", degree_term),
+  dfw = factor(
+    case_when(
+      grade %in% c("W", "W*", "UW", "UW*", "F", "F*", 
+                        "D-", "D-*", "D", "D*", "D+", "D+*", "NC", "NC*") ~ 1,
+      .default = 0
+      )
+    ),
+  df = factor(
+    case_when(
+      grade %in% c("UW", "UW*", "F", "F*", "D-", "D-*", "D", "D*", 
+                   "D+", "D+*", "NC", "NC*") ~ 1,
+      .default = 0
+      )
+    ),
+  nominal1 = factor(nominal1),
+  nominal2 = factor(nominal2),
+  nominal3 = factor(nominal3),
+  nominal4 = factor(nominal4),
+  nominal5 = factor(nominal5),
+  nominal6 = factor(
+    case_when(
+      nominal6 == "A" ~ "Female",
+      nominal6 == "B" ~ "Male"
+      )
+    ),
+  nominal7 = factor(
+    case_when(
+      nominal7 == "A" ~ "Single",
+      nominal7 == "B" ~ "Married",
+      nominal7 == "C" ~ "Other",
+      is.na(nominal7) ~ "Unknown"
+      ), levels = c("Single", "Married", "Other", "Unknown")
+    ),
+  nominal8 = factor(
+    case_when(
+      nominal8 == "A" ~ "Not First Gen",
+      nominal8 == "B" ~ "First Gen"
+      )
+    ),
+  nominal9 = factor(
+    case_when(
+      nominal9 == "A" ~ "Asian",
+      nominal9 == "B" ~ "Hispanic",
+      nominal9 == "C" ~ "Non-Resident Alien",
+      nominal9 == "D" ~ "Two or More Races",
+      nominal9 == "E" ~ "USoC",
+      nominal9 == "F" ~ "White",
+      is.na(nominal9) ~ "Unknown"
+      ), levels = c("Asian", "Hispanic", "Non-Resident Alien",
+                    "Two or More Races", "USoC", "White", "Unknown")
+    ),
+  nominal10 = factor(
+    case_when(
+      nominal10 == "A" ~ "New Student",
+      nominal10 == "B" ~ "Transfer Student",
+      nominal10 == "C" ~ "Returning Student",
+      nominal10 == "D" ~ "Other"
+      ), levels = c("Returning Student", "New Student",
+                    "Transfer Student", "Other")
+    ),
+  ordinal1 = factor(
+    case_when(
+      ordinal1 == 1 ~ "Below 1000 Level",
+      ordinal1 == 2 ~ "1000 Level",
+      ordinal1 == 3 ~ "2000 Level",
+      ordinal1 == 4 ~ "3000 Level",
+      ordinal1 == 5 ~ "4000 Level",
+      ordinal1 == 6 ~ "6000 Level",
+      ), levels = c("Below 1000 Level",
+                    "1000 Level", "2000 Level",
+                    "3000 Level", "4000 Level",
+                    "6000 Level")
+    ),
+  ordinal2 = factor(
+    case_when(
+      ordinal2 == 1 ~ "Freshman",
+      ordinal2 == 2 ~ "Sophomore",
+      ordinal2 == 3 ~ "Junior",
+      ordinal2 == 4 ~ "Senior",
+      ordinal2 == 5 ~ "Graduate"
+      ), levels = c("Freshman", "Sophomore", "Junior",
+                    "Senior", "Graduate")
+    ),
+  ordinal3 = factor(
+    case_when(
+      ordinal3 == 1 ~ "<=18",
+      ordinal3 == 2 ~ "19-21",
+      ordinal3 == 3 ~ "22-24",
+      ordinal3 == 4 ~ "25-29",
+      ordinal3 == 5 ~ "30-39",
+      ordinal3 == 6 ~ ">=40",
+      ), levels = c("<=18", "19-21", "22-24", "25-29", "30-39", ">=40")
+    ),
+  random_id = factor(random_id),
+  hsgpa_group = factor(case_when(
+    continuous1 < 2.0 ~ "<2.0",
+    continuous1 >= 2.0 & continuous1 < 2.5 ~ "2.0-2.49",
+    continuous1 >= 2.5 & continuous1 < 3.0 ~ "2.5-2.99",
+    continuous1 >= 3.0 & continuous1 < 3.5 ~ "3.0-3.49",
+    continuous1 >= 3.5 ~ "3.5+"
+    ), levels = c("<2.0", "2.0-2.49", "2.5-2.99", "3.0-3.49", "3.5+"))
+  ) |>
+  rename(sex = nominal6,
+         marital_status = nominal7,
+         first_gen = nominal8,
+         race = nominal9,
+         student_type = nominal10,
+         course_level = ordinal1,
+         student_class = ordinal2,
+         age = ordinal3,
+         number_grades = ordinal4,
+         number_failing_grades = ordinal5,
+         hsgpa = continuous1,
+         sem_gpa = continuous2,
+         overall_gpa = continuous3,
+         percent_failing_grades = continuous4)
+
+# Change variable names and codes for variables with lots of categories
+for(var_name in unique(variable_codes$old_name)) {
+  new_name = unique(
+    variable_codes$new_name[ which(variable_codes$old_name == var_name)]
+    )
+  attain_term = left_join(attain_term, variable_codes |>
+                            filter(old_name == var_name),
+                          by = join_by(!!sym(var_name) == old_code)) |>
+    rename(!!new_name := "new_value") |>
+    select(!c(old_name, new_name, !!sym(var_name)))
+}
+
+
+attain_plot <- attain_term |>
+  filter(!is.na(grade) & !(grade %in% c("I", "I*", "AU", "T", "NR")))
+
+# # Number of missing values for each variable. 
+# colSums(is.na(attain_term))
+
+attain_term |>
+  filter((grade %in% c("I", "I*", "AU", "T", "NR"))) |>
+  dim()
+
+# Remove incomplete records
+attain_clean <- attain_term |>
+  filter(!is.na(hsgpa) & 
+           !is.na(grade) & 
+           !(grade %in% c("I", "I*", "AU", "T", "NR")) &
+           !(hsgpa > 4.0) &
+           !is.na(course_level) &
+           !is.na(course_college)
+         )
+
+# Individual info:
+# random_id
+# number of classes
+# number of DFs
+# number of DFW
+# number of terms
+# Entry date
+# Grad date
+# average continuous1 (high school GPA). 407 have more than 1
+# Final cumulative GPA
+# nominal9 is unqiue for each
+# nominal6? only 13 have non-unique
+# nominal8? only 355 have non-unique
+bad_id <- attain_plot |> 
+  group_by(random_id) |>
+  summarize(num6 = n_distinct(sex),
+            num8 = n_distinct(first_gen)) |>
+  filter(num6 > 1 | num8 > 1) # Removes those that have more than 1 sex or first_gen status
+attain_ind <- attain_plot |>
+  filter(!(random_id %in% bad_id$random_id)) |>
+  arrange(random_id, term) |> 
+  group_by(random_id) |>
+  summarize(num_classes = n(),
+            num_df = sum(df == 1),
+            num_dfw = sum(dfw == 1),
+            num_terms = n_distinct(term),
+            num_dfw_terms = n_distinct(term[dfw == 1]), # number of terms with at least 1 DFW
+            prop_dfw_terms = round(num_dfw_terms/num_terms, 3),
+            first_term = first(term),
+            last_term = last(term),
+            degree_term = unique(degree_term),
+            highest_degree = unique(highest_degree),
+            hsgpa = mean(hsgpa), # hsgpa
+            first_sem_gpa = first(sem_gpa), # first semester gpa
+            final_gpa = last(overall_gpa),
+            sex = unique(sex),
+            first_gen = unique(first_gen),
+            race = unique(race),
+            persist_grad = case_when(
+              highest_degree == "Associate" & last_term != degree_term ~ 0,
+              (first_term %in% c("Summer 2016", "Fall 2016", 
+                                "Spring 2017", "Summer 2017", "Fall 2017", 
+                                "Spring 2018", "Summer 2018", "Fall 2018",
+                                "Spring 2019", "Summer 2019", "Fall 2019",
+                                "Spring 2020", "Summer 2020", "Fall 2020",
+                                "Spring 2021", "Summer 2021", "Fall 2021") &
+                highest_degree != "None")
+                | last_term == "Spring 2023" & first_term != "Spring 2023" ~ 1,
+              first_term == "Spring 2023" ~ NA,
+                 .default = 0
+              ) |> factor(),
+            non_persist_grad = case_when(
+              persist_grad == "1" ~ "0",
+              persist_grad == "0" ~ "1"
+              ) |> factor(),
+            covid = factor(case_when(
+              last_term %in% c("Summer 2016", "Fall 2016", 
+                               "Spring 2017", "Summer 2017", "Fall 2017", 
+                               "Spring 2018", "Summer 2018", "Fall 2018",
+                               "Spring 2019", "Summer 2019", "Fall 2019") ~ "Pre",
+              first_term %in% c("Fall 2021", "Spring 2022", "Summer 2022",
+                                "Fall 2022", "Spring 2023") ~ "Post",
+              first_term %in% c("Summer 2016", "Fall 2016", 
+                               "Spring 2017", "Summer 2017", "Fall 2017", 
+                               "Spring 2018", "Summer 2018", "Fall 2018",
+                               "Spring 2019", "Summer 2019", "Fall 2019",
+                               "Spring 2020", "Summer 2020", "Fall 2020",
+                               "Spring 2021", "Summer 2021") &
+                last_term %in% c("Spring 2020", "Summer 2020", "Fall 2020",
+                                 "Spring 2021", "Summer 2021",
+                                 "Fall 2021", "Spring 2022", "Summer 2022",
+                                 "Fall 2022", "Spring 2023") ~ "During"
+              ), levels = c("Pre", "During", "Post"))
+            )
+
+attain_plot <- left_join(attain_plot, attain_ind |> 
+                            select(random_id, num_classes, num_df, num_dfw, 
+                                   num_terms, num_dfw_terms, prop_dfw_terms), 
+                          by = "random_id") |>
+  arrange(random_id, term)
+
+attain_clean <- left_join(attain_clean, attain_ind |> 
+                            select(random_id, num_classes, num_df, num_dfw, 
+                                   num_terms, num_dfw_terms, prop_dfw_terms), 
+                          by = "random_id") |>
+  arrange(random_id, term)
+
+rm(attain_data)
+```
+
+
+## Descriptive Statistics
+
+```{r eda, echo = F}
+# Plot of DFW rate by HS GPA group
+attain_plot |>
+  group_by(hsgpa_group) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = hsgpa_group, y = dfw_rate, fill = hsgpa_group)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.005),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "HS GPA Group", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+# Plot of DFW rate by sex
+attain_plot |>
+  group_by(sex) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = sex, y = dfw_rate, fill = sex)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.0025),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Sex", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+# Plot of DFW rate by race
+p <- attain_plot |>
+  group_by(race) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = race, y = dfw_rate, fill = race)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.0035),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Race/Ethnicity", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+x_labs <- ggplot_build(p)$layout$panel_params[[1]]$x$get_labels()
+p + scale_x_discrete(labels = str_wrap(x_labs, width = 14))
+
+
+# Plot of DFW rate by first gen status
+attain_plot |>
+  group_by(first_gen) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = first_gen, y = dfw_rate, fill = first_gen)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.0025),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "First Gen College Student", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+
+# Plots of HS GPA for individuals
+attain_ind |>
+  filter(!is.na(hsgpa)) |>
+  filter(hsgpa <= 4.0) |>
+  ggplot(aes(x = hsgpa)) +
+  geom_histogram(color = "black", fill = "gray90", bins = 30) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_x_continuous(breaks = seq(0.5, 4, by = 0.5)) +
+  labs(x = "High School GPA", y = "Frequency")
+
+cat("HS GPA Summary Stats")
+attain_ind |>
+  filter(!is.na(hsgpa)) |>
+  filter(hsgpa <= 4.0) |>
+  _$hsgpa |>
+  summary()
+
+attain_ind |>
+  filter(!is.na(hsgpa)) |>
+  filter(hsgpa <= 4.0) |>
+  ggplot(aes(y = hsgpa, x = sex)) +
+  geom_boxplot(color = "black", fill = "gray90") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(breaks = seq(0.5, 4, by = 0.5)) +
+  labs(x = "Sex", y = "High School GPA")
+
+cat("HS GPA Summary Stats Broken Up By Sex")
+attain_ind |>
+  filter(!is.na(hsgpa)) |>
+  filter(hsgpa <= 4.0) |>
+  group_by(sex) |>
+  summarize(
+    avg = mean(hsgpa),
+    sd = sd(hsgpa),
+    min = min(hsgpa),
+    q1 = quantile(hsgpa, 0.25),
+    med = median(hsgpa),
+    q3 = quantile(hsgpa, 0.75),
+    max = max(hsgpa),
+    iqr = IQR(hsgpa)
+  )
+
+# Plot of DFW of sex broken up by class
+p <- attain_plot |>
+  group_by(race, student_class) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  na.omit() |>
+  ggplot(aes(x = race, y = dfw_rate, fill = race)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.018),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Race/Ethnicity", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6),
+        strip.background = element_rect(fill = "gray80")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)),
+                     limits = c(0, 0.38)) +
+  facet_grid(rows = "student_class")
+x_labs <- ggplot_build(p)$layout$panel_params[[1]]$x$get_labels()
+p + scale_x_discrete(labels = str_wrap(x_labs, width = 14))
+```
+
+## First Models
+
+```{r first_model, echo = F}
+mod_no_ints <- glmmTMB(
+  dfw ~  sex + first_gen + hsgpa + (1 + hsgpa | random_id), 
+  data = attain_clean, family = binomial(), REML = TRUE
+)
+mod_two_way_ints <- glmmTMB(
+  dfw ~ (sex + first_gen + hsgpa)^2 + (1 + hsgpa | random_id),
+  data = attain_clean, family = binomial(), REML = TRUE
+)
+mod_all_ints <- glmmTMB(
+  dfw ~ sex * first_gen * hsgpa + (1 + hsgpa | random_id),
+  data = attain_clean, family = binomial(), REML = TRUE
+)
+summary(mod_no_ints)
+summary(mod_two_way_ints)
+summary(mod_all_ints)
+source(paste0("~/My Drive/SUU/Attainment Gaps Fellow/",
+              "extract_models_pvalues_glmmTMB_indiv.R"))
+cat("Individual Models with No Interactions")
+extract_models_pvalues_glmmTMB_indiv(mod_no_ints)
+cat("Individual Models with Two-Way Interactions")
+extract_models_pvalues_glmmTMB_indiv(mod_two_way_ints)
+cat("Individual Models with All-Way Interactions")
+extract_models_pvalues_glmmTMB_indiv(mod_all_ints)
+
+cat("Random effect for ID abn3609ne013An12a")
+ranef(mod_no_ints)$cond[[1]][50,] # Random effect of ID used in paper
+# attain_clean |>
+#   filter(random_id == "abn3609ne013An12a") |>
+#   select(sex, first_gen)
+```
+
+## Probability Plot in Initial Model
+
+```{r prob_plots, echo = F, message = F}
+ilogit <- function(x) {
+  value <- exp(x)/(1+exp(x))
+  value
+}
+
+beta <- fixef(mod_all_ints)$cond
+prob_frame <- tibble(sex = NA, first_gen = NA, hsgpa = NA, 
+                     probs = NA, linear_pred = NA)
+for(first_gen_loop in sort(levels(attain_clean$first_gen))) {
+  for(sex_loop in c("Female", "Male")) {
+    xval <- data.frame(sex = sex_loop, first_gen = first_gen_loop,
+                   hsgpa = seq(0, 4, length = 100))
+    for (v in intersect(names(mod_all_ints$frame), names(xval))) {
+      if (is.factor(mod_all_ints$frame[[v]])) {
+        xval[[v]] <- factor(xval[[v]], 
+                            levels = levels(mod_all_ints$frame[[v]])
+                            )
+      }
+    }
+    linear_pred <- (model.matrix(formula("~  sex * first_gen * hsgpa"), 
+                          data = xval) %*% beta) |> 
+      as.vector()
+    probs <- ilogit(linear_pred)
+      
+    
+    prob_frame <- add_row(prob_frame, sex = rep(sex_loop, 100),
+            first_gen = rep(first_gen_loop, 100), 
+            hsgpa = seq(0, 4, length = 100),
+            probs = probs,
+            linear_pred = linear_pred)
+  }
+}
+prob_frame <- prob_frame[-1, ]
+
+
+
+# hsgpa_groups <- quantile(attain_clean$hsgpa, seq(0, 1, by = 0.1))
+# hsgpa_groups_props = attain_clean |>
+#   mutate(dec_groups = cut(attain_clean$hsgpa,
+#                           breaks = hsgpa_groups)
+#   ) |>
+#   group_by(dec_groups, sex, first_gen) |>
+#   summarize(dfw_prop = mean(dfw == "1")) |>
+#   na.omit() |>
+#   mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+#   ungroup() |>
+#   mutate(midpoint = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:10], each = 4))
+
+
+ggplot(prob_frame, aes(x = hsgpa, y = probs, col = first_gen)) +
+  geom_line(aes(linetype = sex), linewidth = 1) +
+  labs(x = "High School GPA", y = "Predicted Probability of DFW", 
+       color = "First Gen Status", linetype = "Sex") +
+  scale_x_continuous(breaks = seq(0, 4, by = 1), limits = c(0, 4)) +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
+  facet_grid(cols = vars(first_gen), rows = vars(sex), 
+             labeller = label_wrap_gen(width = 20, multi_line = TRUE)) +
+  theme_bw() +
+  ggsci::scale_color_d3(palette = "category20", na.value = "black") +
+  theme(axis.title = element_text(size = 16),
+        strip.text.x = element_text(size = 10),
+        strip.text.y = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12))
+  # geom_point(data = hsgpa_groups_props, 
+  #            aes(x = midpoint, y = dfw_prop))
+```
+
+
+## Linear Fit
+
+```{r linearization}
+hsgpa_groups <- quantile(attain_clean$hsgpa, seq(0, 1, by = 0.07))
+
+############
+# Original #
+############
+attain_clean |>
+  mutate(dec_groups = cut(attain_clean$hsgpa, 
+                          breaks = hsgpa_groups)
+  ) |>
+  group_by(dec_groups, sex, first_gen) |>
+  group_by(dec_groups) |>
+  summarize(dfw_prop = mean(dfw == "1")) |>
+  na.omit() |>
+  mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+  ungroup() |>
+  mutate(midpoint = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:14], each = 1)) |>
+  ggplot(aes(x = midpoint, y = logodds)) +
+  geom_smooth(se = F, color = "red") +
+  geom_smooth(method = "lm", se = F, linetype = "dashed") +
+  geom_point(size = 2) +
+  labs(x = "High School GPA", y = "Empirical Logit (Log Odds) of DFW") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+
+# With facet
+attain_clean |>
+  mutate(dec_groups = cut(attain_clean$hsgpa, 
+                          breaks = hsgpa_groups)
+  ) |>
+  group_by(dec_groups, sex, first_gen) |>
+  summarize(dfw_prop = mean(dfw == "1")) |>
+  na.omit() |>
+  mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+  ungroup() |>
+  mutate(midpoint = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:14], each = 4)) |>
+  ggplot(aes(x = midpoint, y = logodds)) +
+  geom_smooth(se = F, color = "red") +
+  geom_smooth(method = "lm", se = F, linetype = "dashed") +
+  geom_point(size = 2) +
+  labs(x = "High School GPA", y = "Empirical Logit (Log Odds) of DFW") +
+  theme_bw() +
+  facet_grid(rows = vars(sex), cols = vars(first_gen))
+
+################
+# With Splines #
+################
+# 2 Splines
+# =========
+# spline_all_coefs <- fixef(
+#   glmmTMB(formula = dfw ~ splines::ns(hsgpa, df = 2) +
+#             (1 + hsgpa | random_id), data = attain_clean, family = binomial(),
+#           ziformula = ~0, dispformula = ~1, REML = FALSE)
+#   )
+# spline_all_coefs # This is used to define spline_midpoint below
+spline_basis <- splines::ns(attain_clean$hsgpa, df = 2)
+midpoint <- diff(hsgpa_groups)/2 + hsgpa_groups[1:14]
+
+ps1 <- attain_clean |>
+  mutate(dec_groups = cut(attain_clean$hsgpa, 
+                          breaks = hsgpa_groups)
+  ) |>
+  group_by(dec_groups) |>
+  summarize(dfw_prop = mean(dfw == "1")) |>
+  na.omit() |>
+  mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+  ungroup() |>
+  mutate(midpoint = midpoint,
+         ns1 = predict(spline_basis, newx = midpoint)[,1],
+         ns2 = predict(spline_basis, newx = midpoint)[,2], 
+         spline_midpoint = -7.996 + 11.511*ns1 -5.519*ns2) |>
+  ggplot(aes(x = spline_midpoint, y = logodds)) +
+  geom_smooth(se = F, color = "red") +
+  geom_smooth(method = "lm", se = F, linetype = "dashed") +
+  geom_point(size = 2) +
+  theme_bw() +
+  labs(x = "High School GPA Spline Transformed Value", 
+       y = "Empirical Logit (Log Odds) of DFW",
+       title = "Using Splines with 2 Degrees of Freedom") +
+  theme(axis.title = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+
+# 3 Splines
+# =========
+# spline_all_coefs <- fixef(
+#   glmmTMB(formula = dfw ~ splines::ns(hsgpa, df = 3) + (1 + hsgpa | random_id),
+#   data = attain_clean, family = binomial(),
+#   ziformula = ~0, dispformula = ~1, REML = FALSE)
+#   )
+# spline_all_coefs # This is used to define spline_midpoint below
+spline_basis <- splines::ns(attain_clean$hsgpa, df = 3)
+midpoint <- diff(hsgpa_groups)/2 + hsgpa_groups[1:14]
+
+ps2 <- attain_clean |>
+  mutate(dec_groups = cut(attain_clean$hsgpa, 
+                          breaks = hsgpa_groups)
+  ) |>
+  group_by(dec_groups) |>
+  summarize(dfw_prop = mean(dfw == "1")) |>
+  na.omit() |>
+  mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+  ungroup() |>
+  mutate(midpoint = midpoint,
+         ns1 = predict(spline_basis, newx = midpoint)[,1],
+         ns2 = predict(spline_basis, newx = midpoint)[,2], 
+         ns3 = predict(spline_basis, newx = midpoint)[,3], 
+         spline_midpoint = -4.405043-0.006265*ns1+3.176603*ns2-5.518357*ns3) |>
+  ggplot(aes(x = spline_midpoint, y = logodds)) +
+  geom_smooth(se = F, color = "red") +
+  geom_smooth(method = "lm", se = F, linetype = "dashed") +
+  geom_point(size = 2) +
+  theme_bw() +
+  labs(x = "High School GPA Spline Transformed Value", 
+       y = "Empirical Logit (Log Odds) of DFW",
+       title = "Using Splines with 3 Degrees of Freedom") +
+  theme(axis.title = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+
+# 4 Splines
+# =========
+# spline_all_coefs <- fixef(
+#   glmmTMB(formula = dfw ~ splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id),
+#           data = attain_clean, family = binomial(),
+#           ziformula = ~0, dispformula = ~1, REML = FALSE)
+#   )
+# spline_all_coefs # This is used to define spline_midpoint below
+spline_basis <- splines::ns(attain_clean$hsgpa, df = 4)
+midpoint <- diff(hsgpa_groups)/2 + hsgpa_groups[1:14]
+
+ps3 <- attain_clean |>
+  mutate(dec_groups = cut(attain_clean$hsgpa, 
+                          breaks = hsgpa_groups)
+  ) |>
+  group_by(dec_groups) |>
+  summarize(dfw_prop = mean(dfw == "1")) |>
+  na.omit() |>
+  mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+  ungroup() |>
+  mutate(midpoint = midpoint,
+         ns1 = predict(spline_basis, newx = midpoint)[,1],
+         ns2 = predict(spline_basis, newx = midpoint)[,2], 
+         ns3 = predict(spline_basis, newx = midpoint)[,3], 
+         ns4 = predict(spline_basis, newx = midpoint)[,4], 
+         spline_midpoint = -4.501 + 1.580*ns1 -0.829*ns2+2.855*ns3-5.431*ns4) |>
+  ggplot(aes(x = spline_midpoint, y = logodds)) +
+  geom_smooth(se = F, color = "red") +
+  geom_smooth(method = "lm", se = F, linetype = "dashed") +
+  geom_point(size = 2) +
+  theme_bw() +
+  labs(x = "High School GPA Spline Transformed Value", 
+       y = "Empirical Logit (Log Odds) of DFW",
+       title = "Using Splines with 4 Degrees of Freedom") +
+  theme(axis.title = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+
+# 5 Splines
+# =========
+# spline_all_coefs <- fixef(
+#   glmmTMB(formula = dfw ~ splines::ns(hsgpa, df = 5) +
+#             (1 + hsgpa | random_id), data = attain_clean, family = binomial(),
+#           ziformula = ~0, dispformula = ~1, REML = FALSE)
+#   )
+# spline_all_coefs
+spline_basis <- splines::ns(attain_clean$hsgpa, df = 5)
+midpoint <- diff(hsgpa_groups)/2 + hsgpa_groups[1:14]
+
+ps4 <- attain_clean |>
+  mutate(dec_groups = cut(attain_clean$hsgpa, 
+                          breaks = hsgpa_groups)
+  ) |>
+  group_by(dec_groups) |>
+  summarize(dfw_prop = mean(dfw == "1")) |>
+  na.omit() |>
+  mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+  ungroup() |>
+  mutate(midpoint = midpoint,
+         ns1 = predict(spline_basis, newx = midpoint)[,1],
+         ns2 = predict(spline_basis, newx = midpoint)[,2], 
+         ns3 = predict(spline_basis, newx = midpoint)[,3], 
+         ns4 = predict(spline_basis, newx = midpoint)[,4], 
+         ns5 = predict(spline_basis, newx = midpoint)[,5], 
+         spline_midpoint = -4.3822 + 1.8830*ns1 +0.6537*ns2-1.4301*ns3+
+           2.2395*ns4-5.3596*ns5) |>
+  ggplot(aes(x = spline_midpoint, y = logodds)) +
+  geom_smooth(se = F, color = "red") +
+  geom_smooth(method = "lm", se = F, linetype = "dashed") +
+  geom_point(size = 2) +
+  theme_bw() +
+  labs(x = "High School GPA Spline Transformed Value", 
+       y = "Empirical Logit (Log Odds) of DFW",
+       title = "Using Splines with 5 Degrees of Freedom") +
+  theme(axis.title = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+
+library(patchwork)
+(ps1 + ps2)/(ps3 + ps4)
+
+# With Facets (df = 4)
+# ====================
+# mod_sex_fg <- glmmTMB(
+#   formula = dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4) + 
+#     (1 + hsgpa | random_id), data = attain_clean, family = binomial(), 
+#   ziformula = ~0, dispformula = ~1, REML = FALSE)
+# extract_models_glmmTMB_ns(mod_sex_fg) # Used to define all spline_midpoint below
+
+spline_basis <- splines::ns(attain_clean$hsgpa, df = 4)
+
+spline_df_facet <- attain_clean |>
+  mutate(dec_groups = cut(attain_clean$hsgpa, 
+                          breaks = hsgpa_groups)
+  ) |>
+  group_by(dec_groups, sex, first_gen) |>
+  summarize(dfw_prop = mean(dfw == "1")) |>
+  na.omit() |>
+  mutate(logodds = log(dfw_prop/(1 - dfw_prop))) |>
+  ungroup() |>
+  mutate(midpoint = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:14], each = 4),
+         ns1 = predict(spline_basis, 
+                       newx = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:14], 
+                                  each = 4))[,1],
+         ns2 = predict(spline_basis, 
+                       newx = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:14], 
+                                  each = 4))[,2], 
+         ns3 = predict(spline_basis, 
+                       newx = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:14], 
+                                  each = 4))[,3],
+         ns4 = predict(spline_basis, 
+                       newx = rep(diff(hsgpa_groups)/2 + hsgpa_groups[1:14], 
+                                  each = 4))[,4],
+         spline_midpoint_female_first_gen = -3.143 + 0.311*ns1 - 1.46*ns2 + 0.527*ns3 - 5.431*ns4,
+         spline_midpoint_male_first_gen = -1.006 + -1.429*ns1 + -3.527*ns2 + -4.282*ns3 - 5.597*ns4,
+         spline_midpoint_female_not_first_gen = -6.903 + 3.891*ns1 + 0.84*ns2 + 7.728*ns3 - 5.408*ns4,
+         spline_midpoint_male_not_first_gen = -4.988 + 1.862*ns1 + 0.288*ns2 + 4.116*ns3 - 4.92*ns4) |>
+  mutate(spline_midpoint = case_when(
+    sex == "Female" & first_gen == "First Gen" ~ spline_midpoint_female_first_gen,
+    sex == "Male" & first_gen == "First Gen" ~ spline_midpoint_male_first_gen,
+    sex == "Female" & first_gen == "Not First Gen" ~ spline_midpoint_female_not_first_gen,
+    sex == "Male" & first_gen == "Not First Gen" ~ spline_midpoint_male_not_first_gen
+    )
+  )
+ggplot(spline_df_facet, aes(x = spline_midpoint, y = logodds)) +
+  geom_point() +
+  geom_smooth(se = F, color = "red") +
+  geom_smooth(method = "lm", se = F, linetype = "dashed") +
+  theme_bw() +
+  facet_grid(rows = vars(sex), cols = vars(first_gen)) +
+  labs(x = "High School GPA Spline Transformed Value", y = "Logit of DFW") +
+  theme(axis.title = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+
+
+# Graph of proportion rather than logit
+# See the ChatGPT section
+# midpoint <- diff(hsgpa_groups)/2 + hsgpa_groups[1:14]
+# predict_df <- data.frame(sex = rep(c("Female", "Male"), times = 28),
+#            first_gen = rep(c("First Gen", "Not First Gen"), each = 14)) |>
+#   arrange(sex, first_gen) |>
+#   mutate(hsgpa = rep(midpoint, times = 4),
+#          random_id = factor(1:(14 * 4)),
+#          dfw = factor(rep(0, 14 * 4)))
+# predict_mixed(mod_sex_fg, newdata = predict_df) |>
+#   _$pred_df |>
+#   cbind(predict_df) |>
+#   select(!c(random_id, dfw)) |>
+#   cbind(spline_df_facet |>
+#           arrange(sex, first_gen, midpoint) |>
+#           select(dfw_prop)) |>
+#   ggplot() +
+#   geom_point(aes(x = hsgpa, y = pop_prob_prediction), color = "blue") +
+#   geom_point(aes(x = hsgpa, y = dfw_prop), color = "darkgreen") +
+#   facet_grid(row = vars(sex), cols = vars(first_gen))
+
+# ##############
+# ## CHAT GPT ##
+# ##############
+# # Plot logit vs hsgpa spline
+# # ==========================
+# B <- ns(attain_clean$hsgpa, df = 3)
+# 
+# # Extract fixed-effect coefficients for the spline terms
+# coefs <- fixef(mod)$cond
+# 
+# # Compute the model's linear predictor part from spline terms only
+# lp <- coefs["(Intercept)"] +
+#       coefs["splines::ns(hsgpa, df = 3)1"] * B[,1] +
+#       coefs["splines::ns(hsgpa, df = 3)2"] * B[,2] +
+#       coefs["splines::ns(hsgpa, df = 3)3"] * B[,3]
+# 
+# # Bin by lp
+# attain_clean$lp_bin <- cut(lp, breaks = 15)
+# attain_clean$lp = lp
+# 
+# emp_df <- attain_clean %>%
+#   group_by(lp_bin) |>
+#   summarize(
+#     x = mean(lp),
+#     emp_logit = log(mean(dfw == "1") / (1 - mean(dfw == "1"))),
+#     n = n()
+#   )
+# 
+# ggplot(emp_df, aes(x = x, y = emp_logit)) +
+#   geom_point() +
+#   geom_smooth() +
+#   geom_smooth(method = "lm") +
+#   labs(x = "Linear predictor from spline terms", y = "Empirical logit")
+# 
+# Probs
+# =====
+# # Create spline basis
+# B <- ns(attain_clean$hsgpa, df = 3)
+# 
+# # Get model coefficients
+# coefs <- fixef(mod_sex_fg)$cond
+# 
+# # Compute linear predictor from spline terms only
+# lp <- coefs["(Intercept)"] +
+#       coefs["splines::ns(hsgpa, df = 3)1"] * B[,1] +
+#       coefs["splines::ns(hsgpa, df = 3)2"] * B[,2] +
+#       coefs["splines::ns(hsgpa, df = 3)3"] * B[,3]
+
+# # Add to original data
+# attain_clean$hsgpa_bin = cut(attain_clean$hsgpa, breaks = 15)
+# 
+# # Group by binned hsgpa
+# emp_df <- attain_clean %>%
+#   group_by(hsgpa_bin) %>%
+#   summarize(
+#     hsgpa_mid = mean(hsgpa, na.rm = TRUE),
+#     emp_prob = mean(dfw == "1", na.rm = TRUE),
+#     lp_avg = mean(lp, na.rm = TRUE),    # average linear predictor
+#     pred_prob = plogis(lp_avg),         # convert avg logit to probability
+#     n = n()
+#   )
+# 
+# ggplot(emp_df, aes(x = hsgpa_mid)) +
+#   geom_point(aes(y = emp_prob), color = "black", size = 2) +
+#   geom_line(aes(y = pred_prob), color = "blue", size = 1) +
+#   labs(
+#     x = "High School GPA",
+#     y = "Probability of D/F/W",
+#     title = "Observed and Model-Predicted D/F/W Rates by High School GPA"
+#   ) +
+#   theme_minimal()
+
+# NEWLY COMMENTED
+# attain_clean <- attain_clean |>
+#   mutate(pred_prob = predict_mixed(mod_sex_fg)[[2]]$pop_prob_prediction)
+# 
+# emp_df <- attain_clean |>
+#   mutate(hsgpa_bin = cut(hsgpa, 25)) |>
+#   group_by(hsgpa_bin) |>
+#   summarize(
+#     hsgpa_mid = mean(hsgpa, na.rm = TRUE),
+#     emp_prob = mean(dfw == "1", na.rm = TRUE),
+#     pred_prob = mean(pred_prob, na.rm = TRUE)
+#   )
+# 
+# ggplot(emp_df, aes(x = hsgpa_mid)) +
+#   geom_point(aes(y = emp_prob), color = "black", size = 2) +
+#   geom_point(aes(y = pred_prob), color = "blue", size = 1) +
+#   geom_smooth(aes(y = pred_prob)) +
+#   labs(
+#     x = "High School GPA",
+#     y = "Probability of D/F/W",
+#     title = "Observed and Model-Predicted D/F/W Rates by High School GPA"
+#   ) +
+#   theme_minimal()
+```
+
+## Likelihood Ratio Tests
+
+```{r likelihood_test_splines_df, echo = F}
+#####
+# Comparing Splines with different df
+####
+# All of this is with the sex and first gen model with all interactions
+# Using natural splines with 3 df gives 'log Lik.' -143636.8 (df=19)
+# Using natural splines with 4 df gives 'log Lik.' -143629 (df=23)
+# Using natural splines with 4 df gives 'log Lik.' -143624.8 (df=27)
+# 3 vs 4
+cat(paste0("The test statistic for the liklihood ratio test for splines with\n",
+           "3 df vs 4 df is ", round(-2*-143636.8 - -2*-143629, 3), 
+           " with p-value ",
+           round(1 - pchisq(-2*-143636.8 - -2*-143629, 4), 5), "."))
+# 1 - pchisq(-2*-143636.8 - -2*-143629, 4) # 0.003605668
+# 4 vs 5
+cat(paste0("The test statistic for the liklihood ratio test for splines with\n",
+           "4 df vs 5 df is ", round(-2*-143629 - -2*-143624.8, 3), 
+           " with p-value ",
+           round(1 - pchisq(-2*-143629 - -2*-143624.8, 4), 5), "."))
+1 - pchisq(-2*-143629 - -2*-143624.8, 4) # 0.077977
+```
+
+## Cross Validation
+
+```{r test_train, echo = F, message = F, warning=F}
+set.seed(2)
+unique_ids <- as.character(unique(attain_clean$random_id))
+train_id_index <- sample(unique_ids, size = 0.85 * length(unique_ids))
+
+attain_train <- attain_clean |> filter(random_id %in% train_id_index)
+attain_test_new <- attain_clean |> filter(!(random_id %in% train_id_index)) # Test all new IDs 
+
+train_index <- createDataPartition(attain_train$dfw, p = 1 - 15/85, list = FALSE)
+
+attain_test_repeats <- attain_train[-train_index, ] # Test repeated IDs
+attain_train <- attain_train[train_index, ]
+
+# length(intersect(attain_train$random_id, attain_test_new$random_id)) 
+# length(intersect(attain_train$random_id, attain_test_repeats$random_id)) 
+# 
+# nrow(attain_train)/(nrow(attain_train) + nrow(attain_test_new) + nrow(attain_test_repeats))
+```
+
+
+```{r cv_train, echo = F}
+###########################################################
+# CROSS VALIDATION (HAS NEW AND REPEATS BUT NOT MANY NEW) #
+###########################################################
+source('~/My Drive/SUU/Attainment Gaps Fellow/best_weighted_accuracy.R')
+cutoff <- seq(0, 1, by = 0.01)
+cv_k <- 5
+worse_factor <- 3
+weighted_acc_mm_repeat <- best_weighted_accuracy(
+  formula("dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id)"),
+  cutoffs = cutoff, 
+  dataset = attain_train, 
+  cv_k = 5, 
+  worse_factor = 3,
+  REML = FALSE,
+  unique_individs = F, 
+  seed.set = T
+  )
+
+
+#########################################################
+# CROSS VALIDATION (EACH FOLD HAS DISTINCT INDIVIDUALS) #
+#########################################################
+
+# Best Weighted Accuracy for Mixed Model 
+# ======================================
+weighted_acc_mm_new <- best_weighted_accuracy(
+  formula("dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id)"),
+  cutoffs = cutoff, 
+  dataset = attain_train, 
+  cv_k = 5, 
+  worse_factor = 3, 
+  REML = FALSE,
+  unique_individs = T, 
+  seed.set = T
+  )
+
+# Best Weighted Accuracy for Logistic Using GLM
+# =============================================
+weighted_acc_glm <- best_weighted_accuracy(
+  formula("dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4)"),
+  cutoffs = cutoff, 
+  dataset = attain_train, 
+  cv_k = 5, 
+  worse_factor = 3, 
+  REML = FALSE,
+  seed.set = T
+  )
+
+########
+# Plot #
+########
+best_weighted_ac <- c(which.max(weighted_acc_mm_new), 
+                      which.max(weighted_acc_mm_repeat), 
+                      which.max(weighted_acc_glm))
+best_cutoffs <- cutoff[best_weighted_ac]
+
+data.frame(
+  cutoff = rep(cutoff, 3),
+  weighted_acc = c(weighted_acc_mm_new, weighted_acc_mm_repeat, 
+                   weighted_acc_glm),
+  type = factor(c(rep("Mixed Model with New Individuals", 101), 
+           rep("Mixed Model with Repeated Individuals", 101), 
+           rep("Logistic Model", 101)),
+           levels = c("Mixed Model with Repeated Individuals",
+                      "Mixed Model with New Individuals",
+                      "Logistic Model"))
+) |>
+  ggplot(aes(x = cutoff, y = weighted_acc, color = type, linetype = type)) +
+  geom_line(linewidth = 1) +
+  theme_classic() +
+  annotate("point", x = best_cutoffs[1], y = max(weighted_acc_mm_new),
+           color = "darkgreen", size = 4, shape = 20) +
+  annotate("text", x = best_cutoffs[1] - 0.04, 
+           y = max(weighted_acc_mm_new) + 0.03,
+           label = paste0("(", best_cutoffs[1], ", ", 
+                          round(max(weighted_acc_mm_new), 3), ")"),
+           color = "darkgreen") +
+  annotate("point", x = best_cutoffs[2], y = max(weighted_acc_mm_repeat),
+           color = "darkred", size = 4, shape = 20) +
+  annotate("text", x = best_cutoffs[2], y = max(weighted_acc_mm_repeat) + 0.03,
+           label = paste0("(", best_cutoffs[2], ", ", 
+                          round(max(weighted_acc_mm_repeat), 3), ")"),
+           color = "darkred") +
+  annotate("point", x = best_cutoffs[3], y = max(weighted_acc_glm),
+           color = "darkblue", size = 4, shape = 20) +
+  annotate("text", x = best_cutoffs[3] + .04, y = max(weighted_acc_glm) - 0.03,
+           label = paste0("(", best_cutoffs[3], ", ", 
+                          round(max(weighted_acc_glm), 3), ")"),
+           color = "darkblue") +
+  scale_y_continuous(
+    breaks = seq(0, 1, by = 0.1)
+    ) +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.1)) +
+  labs(x = "Probability Cutoff Value",
+       y = paste0(
+         "Average ", cv_k, "-Fold Cross-Validated Weighted Accuracy",
+         "\n(False Negative Weight = ", worse_factor, ")"
+         ),
+       color = "Model Type",
+       linetype = "Model Type"
+       ) +
+  theme(axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6),
+        plot.title = element_text(size = 14, face = "bold"),
+        legend.position = "inside",
+        legend.position.inside = c(0.7916, 0.122),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black")) +
+  coord_cartesian(xlim = c(0, 0.5), ylim = c(0.1, 0.9)) +
+  scale_linetype_manual(values = c("longdash", "dotdash", "solid"))
+```
+
+## Diagnostic Assumption Check: Multicollinearity
+
+```{r diagnostics1:multicollinearity, echo = F}
+car::vif(glm(dfw ~ sex + first_gen + splines::ns(hsgpa, df = 4), 
+             data = attain_train, family = binomial()))
+```
+
+
+```{r likelihood_test_mixed_vs_not, eval = F, echo = F}
+log_lik_glm <- logLik(
+  glm(dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4), 
+      family = binomial(), data = attain_train)
+  )
+
+log_lik_mixed_int <- logLik(
+  glmmTMB(dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4) + (1 | random_id), 
+      family = binomial(), data = attain_train)
+  )
+
+log_lik_mixed_slope <- logLik(
+  glmmTMB(dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4) + 
+            (1 + hsgpa | random_id), 
+      family = binomial(), data = attain_train)
+  )
+
+# Test stat for glm vs random intercept model
+-2*log_lik_glm[[1]] - -2*log_lik_mixed_int[[1]] # df = 1 (1 for random int)
+1 - pchisq(-2*log_lik_glm[[1]] - -2*log_lik_mixed_int[[1]], df = 1)
+
+# Test stat for random intercept model vs random slope
+-2*log_lik_mixed_int[[1]] - -2*log_lik_mixed_slope[[1]] # df = 2 (2 for random slope)
+1 - pchisq(-2*log_lik_mixed_int[[1]] - -2*log_lik_mixed_slope[[1]], df = 2)
+
+data.frame(resids = residuals(mod_sex_fg_train, type = "pearson"),
+           linear_preds = predict(mod_sex_fg_train)) |>
+  ggplot(aes(x = linear_preds, y = resids)) +
+  geom_jitter(shape = 16, height = 0.1, width = 0.1, alpha = 0.1) +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(-10, 10, by = 1)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"),  
+              color = "blue", se = F)
+
+data.frame(int_rand = ranef(mod_sex_fg_train)$cond[[1]][[1]]) |>
+  ggplot(aes(sample = int_rand)) + 
+  geom_qq_line() + 
+  geom_qq(shape = 16)
+data.frame(int_rand = ranef(mod_sex_fg_train)$cond[[1]][[2]]) |>
+  ggplot(aes(sample = int_rand)) + 
+  geom_qq_line() + 
+  geom_qq(shape = 16)
+```
+
+## Diagnostic Assumption Check: DHARMa Outliers
+
+```{r DHARMa, echo = F, cache = T, dev = "png"}
+library(DHARMa)
+
+# length(unique(attain_clean$random_id)) # 25790 individuals in the model
+set.seed(2022)
+unique_individs_index <- sample(1:length(unique(attain_clean$random_id)))
+unique_individs_index_split <- split(
+  unique_individs_index, sort(unique_individs_index %% 4)
+  ) # Split the unique_individs_index into 4 approx equal groups
+
+dharma_plots <- list()
+test_info <- data.frame(model_num = NA,
+                        test_type = NA,
+                        null.value = NA,
+                        estimate = NA,
+                        p.value = NA)
+
+for(i in 1:length(unique_individs_index_split)) {
+  attain_small <- attain_clean |>
+    filter(random_id %in%
+             unique(attain_clean$random_id)[unique_individs_index_split[[i]]])
+  
+  mod_dharma <- glmmTMB(
+      dfw ~ sex * first_gen * ns(hsgpa, df = 4) + (1 + hsgpa | random_id),
+      data = attain_small, family = binomial(), REML = FALSE
+    )
+  
+  simulationOutput <- simulateResiduals(mod_dharma, plot = FALSE, n = 400)
+  # plot(simulationOutput, smoothScatter = T)
+  # plotQQunif(simulationOutput)
+  tO <- testOutliers(simulationOutput, type = "bootstrap", nBoot = 400,
+                     plot = FALSE)
+  test_info <- add_row(test_info, 
+                       model_num = i,
+                       test_type = "outlier",
+                       # null.value = tO$null.value[[1]],
+                       null.value = names(tO$estimate),
+                       estimate = tO$estimate[[1]],
+                       p.value = tO$p.value)
+  tD <- testDispersion(simulationOutput, plot = FALSE)
+  test_info <- add_row(test_info, 
+                       model_num = i,
+                       test_type = "dispersion",
+                       null.value = "0",
+                       estimate = tD$statistic[[1]],
+                       p.value = tD$p.value)
+  tU <- testUniformity(simulationOutput, plot = FALSE)
+  test_info <- add_row(test_info, 
+                       model_num = i,
+                       test_type = "uniformity",
+                       null.value = "0",
+                       estimate = tU$statistic[[1]],
+                       p.value = tU$p.value)
+  # plotResiduals(simulationOutput, smoothScatter = T, rank = T)
+  # plotResiduals(simulationOutput, attain_small$dfw)
+  # plotResiduals(simulationOutput, form = attain_small$hsgpa, rank = F)
+  # hist(simulationOutput)
+  
+  dp1 <- data.frame(resids = simulationOutput$scaledResiduals) |>
+    ggplot(aes(sample = resids)) +
+    geom_qq(shape = 16, distribution = stats::qunif) +
+    geom_abline(slope = 1, intercept = 0, color = "blue", linetype = "dashed") +
+    labs(x = "Expected", y = "Observed", 
+         title = paste0("Uniform QQ Plot for DHARMa Residuals: Model ", i)) +
+    theme_bw() +
+    theme(axis.title = element_text(size = 12),
+          plot.title = element_text(size = 14, face = "bold"))
+  
+  dp2 <- data.frame(resids = simulationOutput$scaledResiduals) |>
+    ggplot(aes(x = resids)) +
+    geom_histogram(color = "black", fill = "gray", bins = 50) +
+    labs(x = "Residuals", y = "Frequency", 
+         title = paste0("Histogram of DHARMa Residuals: Model ", i)) +
+    theme_bw() +
+    theme(axis.title = element_text(size = 12),
+          plot.title = element_text(size = 14, face = "bold"))
+  
+  dp3 <- data.frame(resids = simulationOutput$scaledResiduals,
+             predictions = rank(simulationOutput$fittedPredictedResponse) / 
+               max(rank(simulationOutput$fittedPredictedResponse))) |>
+    ggplot(aes(x = predictions, y = resids)) +
+    geom_point(shape = 16, alpha = 0.05) +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue",
+               linewidth = 1) +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), se = F,
+                color = "red", linewidth = 1) +
+    theme_bw() +
+    theme(axis.title = element_text(size = 12),
+          plot.title = element_text(size = 14, face = "bold")) +
+    labs(x = "Model Predictions (Rank Transformed)",
+         y = "DHARMa Residual",
+         title = paste0("DHARMa Residual vs Predicted: Model ", i))
+  
+  dharma_plots[[i]] <- (dp1 + dp2 + dp3)
+}
+test_info <- test_info[-1,]
+# test_info_bs <- test_info
+as_tibble(test_info[,-3])
+dharma_plots
+
+
+# testDispersion(simulationOutput)
+# 
+# qqnorm(residuals(simulationOutput, quantileFunction = qnorm, outlierValues = c(-4,4)), cex = 0.3)
+# qqline(residuals(simulationOutput, quantileFunction = qnorm, outlierValues = c(-4,4)), col = "red")
+# residuals(simulationOutput, quantileFunction = qnorm, outlierValues = c(-7,7)) |>
+#   data.frame(resids = _) |>
+#   ggplot(aes(x = resids)) +
+#   geom_histogram()
+#   geom_qq()
+# 
+# DHARMa::plotQQunif(simulationOutput)
+# 
+# plotRanef(simulationOutput)
+# 
+# 
+# set.seed(2025)
+# attain_sim <- attain_clean |>
+#   filter(random_id %in% sample(unique(attain_clean$random_id), 500)) |>
+#   select(random_id, sex, first_gen, hsgpa, dfw) %>%
+#   tibble(prob = . |>
+#            predict_mixed(mod_dharma, newdata = _) |>
+#            _$indiv_prob_prediction) |>
+#   mutate(sim_dfw = rbinom(n(), 1, prob))
+# 
+# mod_sim <- glmmTMB(sim_dfw ~ sex * first_gen * ns(hsgpa, df = 4) + 
+#                      (1 + hsgpa | random_id), data = attain_sim, 
+#                    family = binomial())
+# sr <- simulateResiduals(mod_sim)
+# testOutliers(sr, type = "bootstrap")
+# plot(sr)
+```
+
+## Missing GPA Table Info
+
+```{r missing_gpa, echo = F}
+# Proportion of missing GPA by race
+cat("Proportion of missing GPA by race")
+attain_term |>
+  group_by(race) |>
+  summarize(number = n(),
+            number_missing = sum(is.na(hsgpa)),
+            proportion = sum(is.na(hsgpa))/n())
+
+# Proportion of missing GPA overall
+cat("Proportion of missing GPA overall")
+attain_term |>
+  summarize(number = n(),
+            number_missing = sum(is.na(hsgpa)),
+            proportion = sum(is.na(hsgpa))/n())
+
+# Proportion of DFW when missing GPA by race
+cat("Proportion of DFW when missing GPA by race")
+attain_term |>
+  filter(is.na(hsgpa)) |>
+  group_by(race) |>
+  summarize(round(sum(dfw == 1)/n(),3))
+
+# Proportion of DFW when missing GPA overall
+cat("Proportion of DFW when missing GPA overall")
+attain_term |>
+  filter(is.na(hsgpa)) |>
+  summarize(round(sum(dfw == 1)/n(),3))
+
+# Proportion of DFW when GPA is not missing by race
+cat("Proportion of DFW when GPA is not missing by race")
+attain_term |>
+  filter(!is.na(hsgpa)) |>
+  group_by(race) |>
+  summarize(proportion = round(sum(dfw == 1)/n(),3))
+
+# Proportion of DFW when GPA is not missing overall
+cat("Proportion of DFW when GPA is not missing overall")
+attain_term |>
+  filter(!is.na(hsgpa)) |>
+  summarize(round(sum(dfw == 1)/n(),3))
+
+rm(attain_term)
+```
+
+## Model Testing
+
+```{r define_f1score, eval = T, echo = F}
+f1score <- function(cm) {
+  f1 <- 2 * (cm$byClass[["Pos Pred Value"]] * cm$byClass[["Sensitivity"]])/
+  (cm$byClass[["Pos Pred Value"]] + cm$byClass[["Sensitivity"]])
+  return(f1)
+}
+```
+
+
+```{r model_testing, echo = F}
+#################################
+# Model Testing and Diagnostics #
+#################################
+mod_sex_fg_train <- glmmTMB(
+  dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4) + 
+    (1 + hsgpa | random_id),
+  data = attain_train, family = binomial(), REML = FALSE
+  )
+
+test_pred_mixed_new <- predict_mixed(mod_sex_fg_train, 
+                                     newdata = attain_test_new)[[1]]
+test_pred_mixed_repeats <- predict_mixed(mod_sex_fg_train, 
+                                         newdata = attain_test_repeats)[[1]]
+
+cm_mixed_new <- confusionMatrix(
+  as.factor(as.numeric(test_pred_mixed_new > 0.23)), 
+  reference = attain_test_new$dfw, 
+  positive = "1"
+  )
+cat("Mixed Model when Predicting for New Individuals")
+cm_mixed_new
+cat("Weighted Accuracy")
+1 - (cm_mixed_new$table[2] + 3 * cm_mixed_new$table[3]) /
+  sum(cm_mixed_new$table) # weighted accuracy
+cat("F1 Score")
+f1score(cm_mixed_new)
+
+
+cm_mixed_repeats <- confusionMatrix(
+  as.factor(
+    as.numeric(test_pred_mixed_repeats > 0.25)
+    ), 
+  reference = attain_test_repeats$dfw, 
+  positive = "1"
+  )
+cat("Mixed Model when Predicting for Repeated Individuals")
+cm_mixed_repeats
+cat("Weighted Accuracy")
+1 - (cm_mixed_repeats$table[2] + 3 * cm_mixed_repeats$table[3]) /
+  sum(cm_mixed_repeats$table) # weighted accuracy
+cat("F1 Score")
+f1score(cm_mixed_repeats)
+
+
+mod_sex_fg_glm <- glm(dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4), 
+                      data = attain_train, family = binomial)
+
+test_pred_logistic_new <- predict(
+  mod_sex_fg_glm, 
+  newdata = attain_test_new, 
+  type = "response"
+  )
+cm_logstic_new <- confusionMatrix(as.factor(as.numeric(test_pred_logistic_new > 0.25)), 
+                reference = attain_test_new$dfw, positive = "1")
+cat("Logistic Model when Predicting for New Individuals")
+cm_logstic_new
+cat("Weighted Accuracy")
+1 - (cm_logstic_new$table[2] + 3 * cm_logstic_new$table[3]) /
+  sum(cm_logstic_new$table) # weighted accuracy
+cat("F1 Score")
+f1score(cm_logstic_new)
+
+
+test_pred_logistic_repeats <- predict(
+  glm(dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4, Boundary.knots = c(0, 4)), 
+      data = attain_train, family = binomial), 
+  newdata = attain_test_repeats, 
+  type = "response"
+  )
+cm_logstic_repeats <- confusionMatrix(as.factor(as.numeric(test_pred_logistic_repeats > 0.25)), 
+                reference = attain_test_repeats$dfw, positive = "1")
+cat("Logistic Model when Predicting for Repeated Individuals")
+cm_logstic_repeats
+cat("Weighted Accuracy")
+1 - (cm_logstic_repeats$table[2] + 3 * cm_logstic_repeats$table[3]) /
+  sum(cm_logstic_repeats$table) # weighted accuracy
+cat("F1 Score")
+f1score(cm_logstic_repeats)
+
+```
+
+
+
+## Roc Curves
+
+```{r roc, echo = F}
+library(patchwork)
+
+# ROC Curve with all new individuals
+auc <- data.frame(truth = factor(attain_test_new$dfw, levels = c("1", "0")), 
+                  pred = predict_mixed(mod_sex_fg_train, 
+                                       newdata = attain_test_new)[[1]]) |>
+  yardstick::roc_auc(truth, pred) |> 
+  _$.estimate
+p1 <- data.frame(truth = factor(attain_test_new$dfw, levels = c("1", "0")), 
+           pred = predict_mixed(mod_sex_fg_train, 
+                                newdata = attain_test_new)[[1]]) |>
+  yardstick::roc_curve(truth, pred) |> 
+  autoplot() +
+  labs(x = "1 - Specificity", 
+       y = "Sensitivity",
+       title = paste0("Mixed Model ROC Curve\nwith New Individuals.",
+                      "\nArea Under Curve: ", 
+                      format(round(auc, 3), nsmall = 3))) +
+  theme(plot.margin = margin(t = 0, r = 30, b = 15, l = 0))
+
+# ROC Curve with repeated individuals
+auc <- data.frame(truth = factor(attain_test_repeats$dfw, levels = c("1", "0")), 
+                  pred = predict_mixed(mod_sex_fg_train, 
+                                       newdata = attain_test_repeats)[[1]]) |>
+  yardstick::roc_auc(truth, pred) |>
+  _$.estimate
+p2 <- data.frame(truth = factor(attain_test_repeats$dfw, levels = c("1", "0")), 
+           pred = predict_mixed(mod_sex_fg_train, 
+                                newdata = attain_test_repeats)[[1]]) |>
+  yardstick::roc_curve(truth, pred) |> 
+  autoplot() +
+  labs(x = "1 - Specificity", 
+       y = "Sensitivity",
+       title = paste0("Mixed Model ROC Curve\nwith Repeated Individuals.",
+                      "\nArea Under Curve: ", 
+                      format(round(auc, 3), nsmall = 3))) +
+  theme(plot.margin = margin(t = 0, r = 0, b = 15, l = 0))
+
+
+# ROC with glm with new individuals
+auc <- predict(mod_sex_fg_glm, newdata = attain_test_new, type = "response") |>
+  data.frame(truth = factor(attain_test_new$dfw, levels = c("1", "0")), 
+             pred = _) |>
+  yardstick::roc_auc(truth, pred) |>
+  _$.estimate
+p3 <- predict(mod_sex_fg_glm, newdata = attain_test_new, type = "response") |>
+  data.frame(truth = factor(attain_test_new$dfw, levels = c("1", "0")), 
+             pred = _) |>
+  yardstick::roc_curve(truth, pred) |> 
+  autoplot() +
+  labs(x = "1 - Specificity", 
+       y = "Sensitivity",
+       title = paste0("Logistic ROC Curve\nwith New Individuals.",
+                      "\nArea Under Curve: ", 
+                      format(round(auc, 3), nsmall = 3))) +
+  theme(plot.margin = margin(t = 0, r = 30, b = 0, l = 0))
+
+
+# ROC with glm with repeated individuals
+auc <- predict(mod_sex_fg_glm, newdata = attain_test_repeats, type = "response") |>
+  data.frame(truth = factor(attain_test_repeats$dfw, levels = c("1", "0")), 
+             pred = _) |>
+  yardstick::roc_auc(truth, pred) |>
+  _$.estimate
+p4 <- predict(mod_sex_fg_glm, newdata = attain_test_repeats, type = "response") |>
+  data.frame(truth = factor(attain_test_repeats$dfw, levels = c("1", "0")), 
+             pred = _) |>
+  yardstick::roc_curve(truth, pred) |> 
+  autoplot() +
+  labs(x = "1 - Specificity", 
+       y = "Sensitivity",,
+       title = paste0("Logistic ROC Curve\nwith Repeated Individuals.",
+                      "\nArea Under Curve: ", 
+                      format(round(auc, 3), nsmall = 3)))
+
+(p1 + p2) / (p3 + p4)
+
+# confusionMatrix(as.factor(as.numeric(predict(mod_dharma, type = "response") > 0.126)), 
+#                 reference = attain_small$dfw, positive = "1")
+
+# 
+# data.frame(truth = factor(attain_small$dfw, levels = c("1", "0")), 
+#            pred = predict(mod_dharma_glm, type = "response")) |>
+#   yardstick::roc_curve(truth, pred) |> 
+#   autoplot()
+# 
+# plot(rocobj)
+# 
+# 
+# ?yardstick::calibration()
+```
+
+## Results: Tables
+
+```{r section5, echo = F}
+source('~/My Drive/SUU/Attainment Gaps Fellow/tabelize_splines_split.R')
+
+rm(mod_no_ints)
+rm(mod_no_ints2)
+rm(mod_two_way_ints)
+rm(mod_all_ints)
+mod_sex_fg <- glmmTMB(
+  dfw ~ sex * first_gen * splines::ns(hsgpa, df = 4) 
+  + (1 + hsgpa | random_id), 
+  data = attain_clean, family = binomial()
+  )
+mod_sex_race <- glmmTMB(
+  dfw ~ sex * race * splines::ns(hsgpa, df = 4) 
+  + (1 + hsgpa | random_id), 
+  data = attain_clean, family = binomial()
+  )
+
+library(splines)
+tableize_splines_split(mod_sex_fg, ld_value = 23) |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = TRUE) |>
+  column_spec(1, width = "14em") |>
+    column_spec(2, width = "4em") |> 
+    column_spec(3, width = "12em") |> 
+    column_spec(4, width = "12em") |> 
+    column_spec(5, width = "12em") 
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_first_gen23_spline.pdf"),
+  #            density = 300)
+
+weighted_acc_race <- best_weighted_accuracy(
+  formula("dfw ~ sex * race * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id)"),
+  cutoffs = cutoff, 
+  dataset = attain_train, 
+  cv_k = 5, 
+  worse_factor = 3, 
+  REML = FALSE,
+  unique_individs = T, 
+  seed.set = T
+  )
+ld_val_sex_race <- cutoff[which.max(weighted_acc_race)] * 100
+# Best weighted accuracy is for ld_values = 23
+tableize_splines_split(mod_sex_race, ld_value = ld_val_sex_race) |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = TRUE) |>
+  column_spec(1, width = "14em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "12em") |> 
+  column_spec(4, width = "12em") |> 
+  column_spec(5, width = "12em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_spline.pdf"),
+  #            density = 300)
+
+tables_sex_race_covid <- tableize_splines_split(
+  dataset = attain_clean, ld_value = ld_val_sex_race, 
+  model_group = "covid", mod_variables = c("sex", "race")
+  )
+
+tables_sex_race_covid[[1]] |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = FALSE) |>
+  column_spec(1, width = "11em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "7em") |> 
+  column_spec(4, width = "5em") |> 
+  column_spec(5, width = "5em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_covid", 1, ".pdf"),
+  #            density = 300)
+tables_sex_race_covid[[2]] |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = FALSE) |>
+  column_spec(1, width = "11em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "7em") |> 
+  column_spec(4, width = "5em") |> 
+  column_spec(5, width = "5em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_covid", 2, ".pdf"),
+  #            density = 300)
+tables_sex_race_covid[[3]] |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = TRUE) |>
+  column_spec(1, width = "12em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "7em") |> 
+  column_spec(4, width = "7em") |> 
+  column_spec(5, width = "7em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_covid", 3, ".pdf"),
+  #            density = 300)
+```
+
+
+
+## Appendix A Graphs
+
+```{r appendix_a, echo = F}
+############
+# Figure 1 #
+############
+# Plot of DFW rate by student college
+attain_plot |>
+  filter(!is.na(student_college)) |>
+  group_by(student_college) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = student_college, y = dfw_rate, fill = student_college)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.003),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Student College", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+# Plot of DFW rate by course college
+attain_plot |>
+  filter(!is.na(course_college)) |>
+  group_by(course_college) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = course_college, y = dfw_rate, fill = course_college)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.003),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Course College", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+# Plot of DFW rate by course term
+attain_plot |>
+  group_by(term) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = term, y = dfw_rate, fill = term)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.0025),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Course Term", y = "DFW Rate") +
+  # ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+
+############
+# Figure 2 #
+############
+# Plot of DFW rate by marital status
+attain_plot |>
+  group_by(marital_status) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = marital_status, y = dfw_rate, fill = marital_status)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.003),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Marital Status", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+# Plot of DFW rate by course level
+attain_plot |>
+  filter(!is.na(course_level)) |> 
+  group_by(course_level) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = course_level, y = dfw_rate, fill = course_level)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.0035),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Course Level", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+# Plot of DFW rate by degree
+attain_plot |>
+  mutate(highest_degree = factor(
+    highest_degree, 
+    levels = c("Certificate", "Associate", "Bachelor", "Master", "None"))
+    ) |>
+  filter(!is.na(highest_degree)) |> 
+  group_by(highest_degree) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = highest_degree, y = dfw_rate, fill = highest_degree)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.0035),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Highest Degree Sought", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
+
+############
+# Figure 3 #
+############
+attain_plot |>
+  filter(!is.na(age)) |> 
+  group_by(age, student_class) |>
+  summarize(dfw_rate = sum(dfw == "1")/n(), n = n()) |>
+  ggplot(aes(x = age, y = dfw_rate, fill = age)) +
+  geom_col() +
+  geom_text(aes(label = round(dfw_rate, 3), y = dfw_rate + 0.021),
+                position = position_dodge(width = 0.9)) +
+  labs(x = "Age Group", y = "DFW Rate") +
+  ggsci::scale_fill_d3(na.value="black") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 12),
+        panel.border = element_rect(color = "black", 
+                                    fill = NA, linewidth = 0.6),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill = "gray80")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  facet_grid(rows = vars(student_class))
+
+```
+
+
+## Appendix B Tables
+
+```{r appendix_b, echo = F}
+
+# Sex and Marital Status
+# ======================
+mod_sex_marital <- glmmTMB(dfw ~ sex * marital_status * splines::ns(hsgpa, df = 4) + 
+            (1 + hsgpa | random_id), data = attain_clean, family = binomial(),
+          control = glmmTMBControl(optCtrl = list(iter.max = 2e4, eval.max = 2e4)))
+
+weighted_acc_marital <- best_weighted_accuracy(
+  formula("dfw ~ sex * marital_status * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id)"),
+  cutoffs = cutoff, 
+  dataset = attain_train, 
+  cv_k = 5, 
+  worse_factor = 3, 
+  REML = FALSE,
+  unique_individs = T, 
+  seed.set = T
+  )
+cutoff[which.max(weighted_acc_marital)]
+# Best weighted accuracy is for ld_values = 21
+
+library(splines)
+tableize_splines_split(mod_sex_marital, ld_value = 21) |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = TRUE) |>
+  column_spec(1, width = "14em") |>
+    column_spec(2, width = "4em") |> 
+    column_spec(3, width = "12em") |> 
+    column_spec(4, width = "12em") |> 
+    column_spec(5, width = "12em") 
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_marital21_spline.pdf"),
+  #            density = 300)
+rm(mod_sex_marital)
+
+# Sex and Student Class
+# =====================
+mod_sex_class <- glmmTMB(dfw ~ sex * student_class * splines::ns(hsgpa, df = 4) + 
+            (1 + hsgpa | random_id), data = attain_clean, family = binomial(),
+          control = glmmTMBControl(optCtrl = list(iter.max = 2e4, eval.max = 2e4)))
+
+weighted_acc_class <- best_weighted_accuracy(
+  formula("dfw ~ sex * student_class * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id)"),
+  cutoffs = cutoff, 
+  dataset = attain_train, 
+  cv_k = 5, 
+  worse_factor = 3, 
+  REML = FALSE,
+  unique_individs = T, 
+  seed.set = T
+  )
+ld_val_sex_class <- cutoff[which.max(weighted_acc_class)] * 100
+# Best weighted accuracy is for ld_values = 21
+
+library(splines)
+tableize_splines_split(mod_sex_class, ld_value = ld_val_sex_class) |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = TRUE) |>
+  column_spec(1, width = "14em") |>
+    column_spec(2, width = "4em") |> 
+    column_spec(3, width = "12em") |> 
+    column_spec(4, width = "12em") |> 
+    column_spec(5, width = "12em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_class21_spline.pdf"),
+  #            density = 300)
+
+
+tables_sex_race_class <- tableize_splines_split(
+  dataset = attain_clean, ld_value = ld_val_sex_race, 
+  model_group = "student_class", mod_variables = c("sex", "race")
+  )
+
+tables_sex_race_class[[1]] |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = FALSE) |>
+  column_spec(1, width = "11em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "7em") |> 
+  column_spec(4, width = "5em") |> 
+  column_spec(5, width = "5em") 
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_class", 1, ".pdf"),
+  #            density = 300)
+tables_sex_race_class[[2]] |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = FALSE) |>
+  column_spec(1, width = "11em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "7em") |> 
+  column_spec(4, width = "5em") |> 
+  column_spec(5, width = "5em") 
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_class", 2, ".pdf"),
+  #            density = 300)
+tables_sex_race_class[[3]] |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = FALSE) |>
+  column_spec(1, width = "11em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "7em") |> 
+  column_spec(4, width = "5em") |> 
+  column_spec(5, width = "5em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_class", 3, ".pdf"),
+  #            density = 300)
+tables_sex_race_class[[4]] |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = FALSE) |>
+  column_spec(1, width = "11em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "7em") |> 
+  column_spec(4, width = "5em") |> 
+  column_spec(5, width = "5em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_race23_class", 4, ".pdf"),
+  #            density = 300)
+rm(mod_sex_class)
+
+# Sex and Course College
+# ======================
+mod_sex_college <- glmmTMB(dfw ~ sex * course_college * splines::ns(hsgpa, df = 4) + 
+            (1 + hsgpa | random_id), data = attain_clean, family = binomial(),
+          control = glmmTMBControl(optCtrl = list(iter.max = 2e4, eval.max = 2e4)))
+
+weighted_acc_college <- best_weighted_accuracy(
+  formula("dfw ~ sex * course_college * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id)"),
+  cutoffs = cutoff, 
+  dataset = attain_train, 
+  cv_k = 5, 
+  worse_factor = 3, 
+  REML = FALSE,
+  unique_individs = T, 
+  seed.set = T
+  )
+ld_val_sex_college <- cutoff[which.max(weighted_acc_college)] * 100
+# Best weighted accuracy is for ld_values = 21
+
+library(splines)
+tableize_splines_split(mod_sex_college, ld_value = ld_val_sex_college) |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = TRUE) |>
+  column_spec(1, width = "14em") |>
+    column_spec(2, width = "4em") |> 
+    column_spec(3, width = "12em") |> 
+    column_spec(4, width = "12em") |> 
+    column_spec(5, width = "12em")
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_college25_spline.pdf"),
+  #            density = 300)
+
+# Sex and Age Group
+# =================
+mod_sex_age <- glmmTMB(
+  dfw ~ sex * age * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id), 
+  data = attain_train |> filter(!is.na(age)), 
+  family = binomial(),
+  control = glmmTMBControl(optCtrl = list(iter.max = 2e4, eval.max = 2e4))
+  )
+
+weighted_acc_age <- best_weighted_accuracy(
+  formula("dfw ~ sex * age * splines::ns(hsgpa, df = 4) + (1 + hsgpa | random_id)"),
+  cutoffs = cutoff, 
+  dataset = attain_train |> filter(!is.na(age)), 
+  cv_k = 5, 
+  worse_factor = 3, 
+  REML = FALSE,
+  unique_individs = T, 
+  seed.set = T
+  )
+ld_val_sex_age <- cutoff[which.max(weighted_acc_age)] * 100
+# Best weighted accuracy is for ld_values = 21
+
+library(splines)
+tableize_splines_split(mod_sex_age, ld_value = ld_val_sex_age) |>
+  remove_column(c(3,4,5)) |>
+  kable_styling(full_width = TRUE) |>
+  column_spec(1, width = "14em") |>
+  column_spec(2, width = "4em") |> 
+  column_spec(3, width = "12em") |> 
+  column_spec(4, width = "12em") |> 
+  column_spec(5, width = "12em") 
+  # save_kable(paste0("~/My Drive/SUU/Attainment Gaps Fellow/Paper/",
+  #                   "table_sex_age24_spline.pdf"),
+  #            density = 300)
+rm(mod_sex_age)
+```
